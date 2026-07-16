@@ -1,0 +1,6 @@
+{
+  "name": "Email Client",
+  "description": "A modern web-based email client using IMAP/POP3 to read and manage emails.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
