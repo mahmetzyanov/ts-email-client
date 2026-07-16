@@ -168,10 +168,15 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);
+  const [localReadIds, setLocalReadIds] = useState<Set<string>>(new Set());
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const [showSnippets, setShowSnippets] = useState<boolean>(true);
+  const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(new Set());
 
   const fetchEmails = async () => {
     setLoading(true);
     setError(null);
+    setSelectedForDelete(new Set());
     try {
       const res = await fetch('/api/emails', {
         method: 'POST',
@@ -194,6 +199,86 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
   useEffect(() => {
     fetchEmails();
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+      if (selectedEmailId) {
+        if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'h') {
+          setSelectedEmailId(null);
+        } else if (e.key === 'd') {
+          handleDelete(selectedEmailId);
+        }
+      } else {
+        if (e.key === 'j') {
+          setFocusedIndex(prev => Math.min(emails.length - 1, prev + 1));
+        } else if (e.key === 'k') {
+          setFocusedIndex(prev => Math.max(0, prev - 1));
+        } else if (e.key === 'Enter') {
+          if (focusedIndex >= 0 && focusedIndex < emails.length) {
+            handleSelectEmail(emails[focusedIndex].id);
+          }
+        } else if (e.key === 'd') {
+          if (focusedIndex >= 0 && focusedIndex < emails.length) {
+            handleDelete(emails[focusedIndex].id);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedEmailId, emails, focusedIndex]);
+
+  const handleSelectEmail = (id: string) => {
+    setSelectedEmailId(id);
+    setLocalReadIds(prev => {
+      const newSet = new Set(prev);
+      newSet.add(id);
+      return newSet;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    setLoading(true);
+    try {
+      for (const id of Array.from(selectedForDelete)) {
+        const res = await fetch(`/api/emails/${id}`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to delete email');
+        }
+      }
+      setSelectedForDelete(new Set());
+      fetchEmails();
+    } catch (err: any) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  const toggleSelectForDelete = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedForDelete(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      setSelectedForDelete(new Set(emails.map(e => e.id)));
+    } else {
+      setSelectedForDelete(new Set());
+    }
+  };
 
   const handleDelete = async (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -250,20 +335,63 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         <div className="bg-white shadow rounded-lg overflow-hidden border border-gray-200">
           <div className="px-4 py-5 border-b border-gray-200 sm:px-6 flex justify-between items-center bg-gray-50">
-            <h3 className="text-lg leading-6 font-medium text-gray-900">Recent Messages</h3>
-            <button 
-              onClick={fetchEmails}
-              disabled={loading}
-              className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
-            >
-              Refresh
-            </button>
+            <div className="flex items-center space-x-4">
+              <input 
+                type="checkbox"
+                className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                checked={emails.length > 0 && selectedForDelete.size === emails.length}
+                onChange={toggleSelectAll}
+                title="Select All"
+              />
+              <h3 className="text-lg leading-6 font-medium text-gray-900">Recent Messages</h3>
+            </div>
+            <div className="flex items-center space-x-4">
+              {selectedForDelete.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={loading}
+                  className="flex items-center space-x-1 text-sm text-red-600 hover:text-red-800 disabled:opacity-50 font-medium bg-red-50 px-2 py-1 rounded"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Selected ({selectedForDelete.size})</span>
+                </button>
+              )}
+              <label className="flex items-center space-x-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={showSnippets} 
+                  onChange={(e) => setShowSnippets(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4"
+                />
+                <span className="text-sm text-gray-600 select-none">Show snippets</span>
+              </label>
+              <button 
+                onClick={fetchEmails}
+                disabled={loading}
+                className="text-sm text-blue-600 hover:text-blue-800 disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
           
           {loading ? (
-            <div className="p-12 flex justify-center text-gray-400">
-              <Loader2 className="w-8 h-8 animate-spin" />
-            </div>
+            <ul className="divide-y divide-gray-200">
+              {[...Array(5)].map((_, i) => (
+                <li key={i} className="px-4 py-4 sm:px-6 flex items-center justify-between animate-pulse">
+                  <div className="min-w-0 flex-1 pr-4 space-y-3 py-1">
+                    <div className="flex items-center justify-between">
+                      <div className="h-4 bg-gray-200 rounded w-1/3" />
+                      <div className="ml-2 h-3 bg-gray-200 rounded w-20" />
+                    </div>
+                    <div className="mt-2">
+                      <div className="h-4 bg-gray-200 rounded w-2/3" />
+                    </div>
+                  </div>
+                  <div className="ml-4 flex-shrink-0 w-5 h-5 bg-gray-200 rounded" />
+                </li>
+              ))}
+            </ul>
           ) : error ? (
             <div className="p-12 flex flex-col items-center justify-center text-center text-red-600">
               <ShieldAlert className="w-12 h-12 mb-4 opacity-50" />
@@ -281,26 +409,52 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
             </div>
           ) : (
             <ul className="divide-y divide-gray-200">
-              {emails.map((email) => (
+              {emails.map((email, index) => {
+                const isUnread = config.protocol === 'IMAP' 
+                  ? !email.flags.includes('\\Seen') && !localReadIds.has(email.id)
+                  : !localReadIds.has(email.id);
+                const isFocused = index === focusedIndex;
+                  
+                return (
                 <li 
                   key={email.id} 
-                  className="hover:bg-gray-50 cursor-pointer transition-colors"
-                  onClick={() => setSelectedEmailId(email.id)}
+                  className={`hover:bg-gray-50 cursor-pointer transition-colors ${isUnread ? 'bg-blue-50/30' : ''} ${isFocused ? 'ring-2 ring-inset ring-blue-500 bg-blue-50/50' : ''}`}
+                  onClick={() => handleSelectEmail(email.id)}
+                  onMouseEnter={() => setFocusedIndex(index)}
                 >
                   <div className="px-4 py-4 sm:px-6 flex items-center justify-between">
+                    <div className="mr-4 flex-shrink-0 flex items-center">
+                      <input 
+                        type="checkbox" 
+                        checked={selectedForDelete.has(email.id)}
+                        onChange={(e) => toggleSelectForDelete(email.id, e as any)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer"
+                      />
+                    </div>
                     <div className="min-w-0 flex-1 pr-4">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-blue-600 truncate">{email.sender}</p>
-                        <div className="ml-2 flex-shrink-0 flex text-sm text-gray-500">
+                        <div className="flex items-center space-x-2 truncate">
+                          {isUnread && <div className="w-2 h-2 bg-blue-600 rounded-full flex-shrink-0" title="Unread" />}
+                          <p className={`text-sm truncate ${isUnread ? 'font-bold text-blue-700' : 'font-medium text-blue-600'}`}>
+                            {email.sender}
+                          </p>
+                        </div>
+                        <div className={`ml-2 flex-shrink-0 flex text-sm ${isUnread ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
                           {format(new Date(email.date), 'MMM d, h:mm a')}
                         </div>
                       </div>
-                      <div className="mt-2 sm:flex sm:justify-between">
-                        <div className="sm:flex">
-                          <p className="flex items-center text-sm text-gray-900 truncate font-medium">
+                      <div className="mt-2 flex flex-col">
+                        <div className="sm:flex flex-1 min-w-0">
+                          <p className={`flex items-center text-sm truncate ${isUnread ? 'font-bold text-gray-900' : 'font-medium text-gray-900'}`}>
                             {email.subject || '(No Subject)'}
                           </p>
                         </div>
+                        {showSnippets && email.snippet && (
+                          <p className="mt-1 text-sm text-gray-500 truncate">
+                            {email.snippet}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="ml-4 flex-shrink-0">
@@ -314,7 +468,8 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
@@ -387,7 +542,8 @@ function EmailViewer({ id, config, onBack, onDelete }: { id: string, config: Ema
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">{email.subject || '(No Subject)'}</h1>
               <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row text-sm text-gray-600">
                 <div className="mb-2 sm:mb-0">
-                  <span className="font-medium text-gray-900">{email.sender}</span>
+                  <div className="font-medium text-gray-900">{email.sender}</div>
+                  {email.recipient && <div className="text-gray-500 mt-0.5">To: {email.recipient}</div>}
                 </div>
                 <div>{email.date ? format(new Date(email.date), 'MMMM d, yyyy h:mm a') : ''}</div>
               </div>

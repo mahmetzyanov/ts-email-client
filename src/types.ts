@@ -13,11 +13,13 @@ export interface EmailMeta {
   subject: string;
   date: string;
   flags: string[];
+  snippet?: string;
 }
 
 export interface EmailBody {
   html: string;
   subject: string;
   sender: string;
+  recipient?: string;
   date: string;
 }

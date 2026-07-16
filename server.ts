@@ -47,6 +47,7 @@ async function startServer() {
         html: email.html || email.textAsHtml || email.text,
         subject: email.subject,
         sender: email.from?.text,
+        recipient: email.to?.text,
         date: email.date
       });
     } catch (error: any) {
@@ -103,13 +104,21 @@ async function startServer() {
       const count = client.mailbox && typeof client.mailbox !== 'boolean' ? client.mailbox.exists : 0;
       if (count > 0) {
         const start = Math.max(1, count - 9);
-        for await (let msg of client.fetch(`${start}:*`, { envelope: true, uid: true, flags: true })) {
+        for await (let msg of client.fetch(`${start}:*`, { envelope: true, uid: true, flags: true, source: { start: 0, maxLength: 2048 } })) {
+          let snippet = "";
+          if (msg.source) {
+            try {
+              const parsed = await simpleParser(msg.source);
+              if (parsed.text) snippet = parsed.text.substring(0, 150).replace(/\s+/g, ' ').trim();
+            } catch(e) {}
+          }
           emails.push({
             id: msg.uid.toString(),
-            sender: msg.envelope.from.map((f: any) => f.address).join(", "),
+            sender: msg.envelope.from?.map((f: any) => f.address).join(", ") || "Unknown",
             subject: msg.envelope.subject,
             date: msg.envelope.date,
             flags: Array.from(msg.flags || []),
+            snippet
           });
         }
       }
@@ -206,12 +215,15 @@ async function startServer() {
           const msgNum = parseInt(msgInfo ? msgInfo[0] : i.toString(), 10);
           const raw = await client.RETR(msgNum);
           const parsed = await simpleParser(raw);
+          let snippet = "";
+          if (parsed.text) snippet = parsed.text.substring(0, 150).replace(/\s+/g, ' ').trim();
           emails.push({
             id: msgNum.toString(),
             sender: parsed.from?.text || "Unknown",
             subject: parsed.subject || "No Subject",
             date: parsed.date || new Date(),
             flags: [],
+            snippet
           });
         } catch (e) {
           
