@@ -172,6 +172,7 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
   const [showSnippets, setShowSnippets] = useState<boolean>(true);
   const [selectedForDelete, setSelectedForDelete] = useState<Set<string>>(new Set());
+  const [deleteProgress, setDeleteProgress] = useState<{current: number, total: number} | null>(null);
 
   const fetchEmails = async () => {
     setLoading(true);
@@ -242,6 +243,8 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
 
   const handleBulkDelete = async () => {
     setLoading(true);
+    setDeleteProgress({ current: 0, total: selectedForDelete.size });
+    let current = 0;
     try {
       for (const id of Array.from(selectedForDelete)) {
         const res = await fetch(`/api/emails/${id}`, {
@@ -253,12 +256,16 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
           const data = await res.json();
           throw new Error(data.error || 'Failed to delete email');
         }
+        current++;
+        setDeleteProgress({ current, total: selectedForDelete.size });
       }
       setSelectedForDelete(new Set());
       fetchEmails();
     } catch (err: any) {
       setError(err.message);
       setLoading(false);
+    } finally {
+      setDeleteProgress(null);
     }
   };
 
@@ -375,6 +382,21 @@ function EmailDashboard({ config, onLogout }: { config: EmailConfig, onLogout: (
             </div>
           </div>
           
+          {deleteProgress && (
+            <div className="px-4 py-3 bg-red-50 border-b border-red-100">
+              <div className="flex justify-between text-sm text-red-700 mb-1 font-medium">
+                <span>Deleting emails...</span>
+                <span>{deleteProgress.current} / {deleteProgress.total}</span>
+              </div>
+              <div className="w-full bg-red-200 rounded-full h-2">
+                <div 
+                  className="bg-red-600 h-2 rounded-full transition-all duration-300" 
+                  style={{ width: `${(deleteProgress.current / deleteProgress.total) * 100}%` }}
+                ></div>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <ul className="divide-y divide-gray-200">
               {[...Array(5)].map((_, i) => (
